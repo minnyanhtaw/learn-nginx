@@ -1,0 +1,673 @@
+<title>Nginx vs Apache</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<style>
+/* Layout: scenario tabs, controls, two matching panels (Apache left, nginx right), then notes and a short comparison table. */
+:root {
+  --bg: #f2f6f4;
+  --surface: #ffffff;
+  --ink: #11201a;
+  --muted: #55675f;
+  --line: #cfdad5;
+  --nginx: #0b8a47;
+  --nginx-soft: #dff3e8;
+  --apache: #c2410c;
+  --apache-soft: #fde6da;
+  --warn: #a16207;
+  --res: #2563c9;
+  --code-bg: #e8efec;
+  --font-body: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0b1410;
+    --surface: #121e19;
+    --ink: #e4efe9;
+    --muted: #93a9a0;
+    --line: #28392f;
+    --nginx: #3fdc86;
+    --nginx-soft: #17382a;
+    --apache: #ff9a62;
+    --apache-soft: #3d2216;
+    --warn: #fbbf24;
+    --res: #6ba6ff;
+    --code-bg: #0a110e;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0b1410;
+  --surface: #121e19;
+  --ink: #e4efe9;
+  --muted: #93a9a0;
+  --line: #28392f;
+  --nginx: #3fdc86;
+  --nginx-soft: #17382a;
+  --apache: #ff9a62;
+  --apache-soft: #3d2216;
+  --warn: #fbbf24;
+  --res: #6ba6ff;
+  --code-bg: #0a110e;
+  color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+body {
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--font-body);
+  font-size: 15px;
+  line-height: 1.55;
+  padding-block: 28px 48px;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+}
+.wrap { max-width: 1040px; margin: 0 auto; display: flex; flex-direction: column; gap: 18px; }
+h1 { font-size: clamp(1.5rem, 4vw, 2.1rem); line-height: 1.15; margin: 0; letter-spacing: -0.01em; text-wrap: balance; }
+.lede { margin: 6px 0 0; color: var(--muted); max-width: 64ch; }
+.eyebrow { font-family: var(--font-mono); font-size: 12px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); margin: 0 0 8px; }
+.eyebrow b { font-weight: 500; }
+.eyebrow .a { color: var(--apache); }
+.eyebrow .n { color: var(--nginx); }
+
+.tabs { display: flex; flex-wrap: wrap; gap: 8px; }
+.tab {
+  font: inherit; font-size: 14px; font-weight: 500;
+  padding: 8px 14px; border-radius: 6px;
+  border: 1px solid var(--line); background: var(--surface); color: var(--ink); cursor: pointer;
+}
+.tab[aria-selected="true"] { background: var(--ink); border-color: var(--ink); color: var(--bg); }
+button:focus-visible, select:focus-visible, input:focus-visible { outline: 2px solid var(--res); outline-offset: 2px; }
+
+.controls { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 12px; }
+.btn {
+  font: inherit; font-size: 14px; font-weight: 500;
+  padding: 7px 14px; border-radius: 6px;
+  border: 1px solid var(--line); background: var(--surface); color: var(--ink); cursor: pointer;
+}
+.controls select, .ctl select {
+  font: inherit; font-size: 14px; padding: 6px 10px; border-radius: 6px;
+  border: 1px solid var(--line); background: var(--surface); color: var(--ink);
+}
+.ctl { display: inline-flex; align-items: center; gap: 6px; font-size: 14px; color: var(--muted); }
+.ctl input[type="checkbox"] { width: 16px; height: 16px; accent-color: var(--nginx); }
+.extra { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px; }
+.seg { display: inline-flex; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; }
+.seg button { font: inherit; font-size: 14px; padding: 6px 12px; border: 0; background: var(--surface); color: var(--muted); cursor: pointer; }
+.seg button[aria-pressed="true"] { background: var(--ink); color: var(--bg); }
+
+.pair { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+.panel { --brand: var(--nginx); --brand-soft: var(--nginx-soft); border: 1px solid var(--line); background: var(--surface); border-radius: 10px; padding: 14px; display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.panel.apache { --brand: var(--apache); --brand-soft: var(--apache-soft); }
+.panel h3 { margin: 0; font-size: 1.05rem; display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; }
+.panel h3::before { content: ""; width: 10px; height: 10px; border-radius: 50%; background: var(--brand); align-self: center; }
+.panel h3 span { font-family: var(--font-mono); font-size: 12px; font-weight: 400; color: var(--muted); }
+.panel svg { display: block; width: 100%; height: auto; }
+.status { margin: 0; font-size: 13.5px; min-height: 3.1em; color: var(--ink); }
+.stats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; margin: 0; }
+.stats div { border-top: 2px solid var(--brand); padding-top: 4px; }
+.stats dt { font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.04em; color: var(--muted); text-transform: uppercase; }
+.stats dd { margin: 0; font-size: 1.15rem; font-weight: 600; font-variant-numeric: tabular-nums; }
+
+/* svg parts */
+.area { fill: none; stroke: var(--line); stroke-width: 1.5; stroke-dasharray: 5 4; }
+.srv { fill: none; stroke: var(--line); stroke-width: 1.5; }
+.wbox { fill: none; stroke: var(--line); stroke-width: 1; }
+.lbl { font-family: var(--font-mono); font-size: 11px; fill: var(--muted); }
+.ttl { font-size: 13px; font-weight: 600; fill: var(--ink); }
+.slotbg { fill: var(--surface); stroke: var(--line); stroke-width: 1.5; }
+.slotbg.busy { stroke: var(--brand); }
+.track { fill: var(--code-bg); }
+.fill { fill: var(--brand); }
+.dot { fill: var(--brand); stroke: none; }
+.dot.ring { fill: none; stroke: var(--brand); stroke-width: 2; }
+.dot.wait { fill: var(--warn); }
+.dot.wait.ring { fill: none; stroke: var(--warn); }
+.off { display: none; }
+.link { fill: none; stroke: var(--line); stroke-width: 2; }
+.node rect { fill: var(--surface); stroke: var(--line); stroke-width: 1.5; transition: fill .2s, stroke .2s; }
+.node .t { font-size: 13px; font-weight: 600; fill: var(--ink); }
+.node .s { font-family: var(--font-mono); font-size: 10.5px; fill: var(--muted); }
+.node.on rect { fill: var(--brand-soft); stroke: var(--brand); stroke-width: 2.5; }
+.node.dim { opacity: .35; }
+.chip rect { rx: 4; }
+.chip .s { font-size: 10.5px; }
+.pk { pointer-events: none; }
+.pk circle { stroke: var(--surface); stroke-width: 2; }
+.pk.req circle { fill: var(--brand); filter: drop-shadow(0 0 5px var(--brand)); }
+.pk.res circle { fill: var(--res); filter: drop-shadow(0 0 5px var(--res)); }
+.pk text { font-family: var(--font-mono); font-size: 11px; font-weight: 500; fill: var(--ink); text-anchor: middle; paint-order: stroke; stroke: var(--surface); stroke-width: 4px; stroke-linejoin: round; }
+.legend { display: flex; flex-wrap: wrap; gap: 6px 16px; font-size: 13px; color: var(--muted); }
+.legend i { display: inline-block; width: 12px; height: 12px; border-radius: 50%; vertical-align: -1px; margin-right: 5px; background: var(--ink); }
+.legend i.ring { background: none; border: 2px solid var(--ink); }
+.legend i.wait { background: var(--warn); }
+
+/* memory */
+.sliderrow { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; border: 1px solid var(--line); background: var(--surface); border-radius: 10px; padding: 12px 14px; }
+.sliderrow label { font-weight: 500; }
+.sliderrow input[type="range"] { flex: 1 1 200px; min-width: 0; accent-color: var(--nginx); }
+.sliderrow output { font-family: var(--font-mono); font-variant-numeric: tabular-nums; min-width: 9ch; text-align: right; }
+.cells { display: grid; grid-template-columns: repeat(32, minmax(0, 1fr)); gap: 2px; }
+.cells span { aspect-ratio: 1; background: var(--line); border-radius: 1px; }
+.cells span.on { background: var(--brand); }
+.cells.few { grid-template-columns: repeat(2, 44px); gap: 8px; }
+.cells.few span { border-radius: 5px; }
+.bar { height: 26px; border-radius: 5px; background: var(--code-bg); overflow: hidden; }
+.bar > div { height: 100%; background: var(--brand); min-width: 3px; }
+.memval { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 12px; font-variant-numeric: tabular-nums; }
+.memval strong { font-size: 1.5rem; }
+.memval span { color: var(--muted); font-size: 13.5px; }
+.badge { font-family: var(--font-mono); font-size: 12px; color: var(--warn); }
+
+.notes { border: 1px solid var(--line); background: var(--surface); border-radius: 10px; padding: 18px 20px; display: flex; flex-direction: column; gap: 10px; }
+.notes h2 { margin: 0; font-size: 1.2rem; line-height: 1.25; text-wrap: balance; }
+.notes p { margin: 0; max-width: 68ch; }
+.notes .reality { color: var(--muted); }
+.notes .reality strong { color: var(--ink); }
+
+.tablewrap { border: 1px solid var(--line); background: var(--surface); border-radius: 10px; overflow-x: auto; }
+table { border-collapse: collapse; width: 100%; min-width: 560px; font-size: 14px; }
+th, td { text-align: left; padding: 10px 14px; border-bottom: 1px solid var(--line); vertical-align: top; }
+tr:last-child td, tr:last-child th { border-bottom: 0; }
+thead th { font-family: var(--font-mono); font-size: 12px; letter-spacing: 0.06em; text-transform: uppercase; }
+thead th.n { color: var(--nginx); }
+thead th.a { color: var(--apache); }
+tbody th { font-weight: 600; width: 22%; }
+h2.sec { font-size: 1.05rem; margin: 6px 0 -6px; }
+
+@media (max-width: 820px) {
+  .pair { grid-template-columns: minmax(0, 1fr); }
+}
+@media (max-width: 480px) {
+  .stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+</style>
+
+<div class="wrap">
+  <header>
+    <p class="eyebrow"><b class="a">apache</b> vs <b class="n">nginx</b></p>
+    <h1>Same traffic, two designs</h1>
+    <p class="lede">Watch how each server handles connections and memory. Both sides get identical requests.</p>
+  </header>
+
+  <div class="tabs" role="tablist" id="tabs" aria-label="Scenarios"></div>
+
+  <div class="controls">
+    <button class="btn" id="play" type="button" aria-pressed="true">Pause</button>
+    <button class="btn" id="restart" type="button">Restart</button>
+    <label class="ctl"><span>Speed</span>
+      <select id="speed" aria-label="Animation speed">
+        <option value="0.5">0.5x</option>
+        <option value="1" selected>1x</option>
+        <option value="2">2x</option>
+      </select>
+    </label>
+    <div class="extra" id="extra"></div>
+  </div>
+
+  <div id="stage"></div>
+
+  <section class="notes" aria-live="polite">
+    <h2 id="n-t"></h2>
+    <p id="n-d"></p>
+    <p class="reality" id="n-r"></p>
+  </section>
+
+  <h2 class="sec">Quick comparison</h2>
+  <div class="tablewrap">
+    <table>
+      <thead><tr><th></th><th class="n">nginx</th><th class="a">Apache</th></tr></thead>
+      <tbody>
+        <tr><th>Connection model</th><td>Few workers, each with an event loop that holds many connections</td><td>Process or thread per connection (prefork, worker), or the event MPM, which frees threads between requests</td></tr>
+        <tr><th>Static files</th><td>Very fast, uses sendfile</td><td>Good</td></tr>
+        <tr><th>Dynamic content</th><td>Passes requests to PHP-FPM, uWSGI, Node or other apps</td><td>Can embed the language (mod_php) or proxy to an app server</td></tr>
+        <tr><th>Per-directory config</th><td>No .htaccess. Central config, apply with a reload</td><td>.htaccess files, checked per request when AllowOverride allows</td></tr>
+        <tr><th>Modules</th><td>Mostly chosen at build time, dynamic modules supported</td><td>Loadable at runtime (mod_rewrite, mod_ssl, and others)</td></tr>
+        <tr><th>Memory with many connections</th><td>Low and nearly flat</td><td>Grows with the number of busy processes or threads</td></tr>
+        <tr><th>Typical role</th><td>Front door, reverse proxy, load balancer, static server</td><td>Traditional hosting with per-directory control</td></tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<script>
+(function () {
+  'use strict';
+  var NS = 'http://www.w3.org/2000/svg';
+  var reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  var PXS = 260;
+
+  function h(tag, cls, text, parent) {
+    var e = document.createElement(tag);
+    if (cls) e.className = cls;
+    if (text != null) e.textContent = text;
+    if (parent) parent.appendChild(e);
+    return e;
+  }
+  function mulberry(a) {
+    return function () {
+      a |= 0; a = (a + 0x6D2B79F5) | 0;
+      var t = Math.imul(a ^ (a >>> 15), 1 | a);
+      t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+  }
+  function seg(pts) {
+    var cum = [0];
+    for (var i = 1; i < pts.length; i++) {
+      var dx = pts[i][0] - pts[i - 1][0], dy = pts[i][1] - pts[i - 1][1];
+      cum.push(cum[i - 1] + Math.sqrt(dx * dx + dy * dy));
+    }
+    return cum;
+  }
+  function posAt(pts, cum, p) {
+    var total = cum[cum.length - 1];
+    if (total === 0) return pts[0];
+    var d = p * total;
+    for (var i = 1; i < pts.length; i++) {
+      if (d <= cum[i]) {
+        var l = cum[i] - cum[i - 1];
+        var f = l === 0 ? 0 : (d - cum[i - 1]) / l;
+        return [pts[i - 1][0] + (pts[i][0] - pts[i - 1][0]) * f, pts[i - 1][1] + (pts[i][1] - pts[i - 1][1]) * f];
+      }
+    }
+    return pts[pts.length - 1];
+  }
+  function rev(a) { return a.slice().reverse(); }
+
+  /* A panel: heading, svg, status line, optional stats. */
+  function makePanel(parent, cls, name, sub, statNames) {
+    var root = h('section', 'panel ' + cls, null, parent);
+    var hd = h('h3', null, name, root);
+    h('span', null, sub, hd);
+    var svg = document.createElementNS(NS, 'svg');
+    svg.setAttribute('viewBox', '0 0 420 250');
+    svg.setAttribute('role', 'img');
+    svg.setAttribute('aria-label', name + ' diagram');
+    root.appendChild(svg);
+    var status = h('p', 'status', '', root);
+    var vals = {};
+    if (statNames) {
+      var dl = h('dl', 'stats', null, root);
+      statNames.forEach(function (s) {
+        var d = h('div', null, null, dl);
+        h('dt', null, s[1], d);
+        vals[s[0]] = h('dd', null, '0', d);
+      });
+    }
+    return { root: root, svg: svg, status: status, vals: vals };
+  }
+
+  function nodeBox(k, x, y, w, ht, title, sub, extraCls) {
+    var cx = x + 10;
+    var s = '<g class="node ' + (extraCls || '') + '" data-k="' + k + '"><rect x="' + x + '" y="' + y + '" width="' + w + '" height="' + ht + '" rx="6"/>';
+    if (sub) {
+      s += '<text class="t" x="' + cx + '" y="' + (y + ht / 2 - 2) + '">' + title + '</text>';
+      s += '<text class="s" x="' + cx + '" y="' + (y + ht / 2 + 13) + '">' + sub + '</text>';
+    } else {
+      s += '<text class="t" x="' + cx + '" y="' + (y + ht / 2 + 5) + '">' + title + '</text>';
+    }
+    return s + '</g>';
+  }
+  var PK = '<g class="pk req" data-pk="1"><circle r="7"/><text y="-13"></text></g>';
+
+  function collect(svg) {
+    var nodes = {};
+    var list = svg.querySelectorAll('g[data-k]');
+    for (var i = 0; i < list.length; i++) nodes[list[i].getAttribute('data-k')] = list[i];
+    var pk = svg.querySelector('[data-pk]');
+    return { nodes: nodes, pk: pk, pkl: pk.querySelector('text') };
+  }
+
+  /* A flow plays a list of legs, moving a packet along each. */
+  function makeFlow(o) {
+    var i = -1, phase = 'idle', t = 0, dur = 0, cum = null, leg = null, finished = false;
+    function setHl(keys) {
+      for (var k in o.nodes) o.nodes[k].classList.toggle('on', keys.indexOf(k) !== -1);
+    }
+    function place(p) { o.pk.setAttribute('transform', 'translate(' + p[0].toFixed(1) + ' ' + p[1].toFixed(1) + ')'); }
+    function arrive() {
+      setHl(leg.hl || []);
+      if (leg.fn) leg.fn();
+      phase = 'dwell'; t = 0;
+    }
+    function next() {
+      i++;
+      if (i >= o.legs.length) { finished = true; return; }
+      leg = o.legs[i];
+      if (leg.note) o.note(leg.note);
+      if (leg.pts) {
+        cum = seg(leg.pts);
+        dur = Math.max(0.5, cum[cum.length - 1] / PXS);
+        o.pk.setAttribute('class', 'pk ' + (leg.kind || 'req'));
+        o.pkl.textContent = leg.label || '';
+        o.pk.style.display = '';
+        place(leg.pts[0]);
+        setHl([]);
+        phase = 'move'; t = 0;
+        if (reduce) { place(leg.pts[leg.pts.length - 1]); arrive(); }
+      } else {
+        arrive();
+      }
+    }
+    function begin() { i = -1; finished = false; setHl([]); o.pk.style.display = 'none'; next(); }
+    function tick(dt) {
+      if (finished) return;
+      t += dt;
+      if (phase === 'move') {
+        var p = Math.min(1, t / dur);
+        var e = p * p * (3 - 2 * p);
+        place(posAt(leg.pts, cum, e));
+        if (p >= 1) arrive();
+      } else if (phase === 'dwell') {
+        if (t >= (leg.dwell == null ? 0.8 : leg.dwell)) next();
+      }
+    }
+    return { begin: begin, tick: tick, isDone: function () { return finished; } };
+  }
+
+  function loopFlows(flows, onRestart) {
+    var wait = 0;
+    return function (dt) {
+      var all = true;
+      flows.forEach(function (f) { f.tick(dt); if (!f.isDone()) all = false; });
+      if (all) {
+        wait += dt;
+        if (wait > 1.4) {
+          wait = 0;
+          if (onRestart) onRestart();
+          flows.forEach(function (f) { f.begin(); });
+        }
+      } else { wait = 0; }
+    };
+  }
+
+  /* ---------- Scenario 1: connections ---------- */
+  function mountConn(stage, extra) {
+    var INTERVAL = [0.75, 0.4, 0.22], STEP = 0.05, NSLOT = 8, QCAP = 24, WCAP = 72;
+    var traffic = 1, slowOn = true;
+
+    var lt = h('label', 'ctl', null, extra);
+    h('span', null, 'Traffic', lt);
+    var sel = h('select', null, null, lt);
+    sel.setAttribute('aria-label', 'Traffic level');
+    ['Low', 'Medium', 'High'].forEach(function (n, i) {
+      var o = document.createElement('option'); o.value = String(i); o.textContent = n; sel.appendChild(o);
+    });
+    sel.value = '1';
+    var ls = h('label', 'ctl', null, extra);
+    var chk = document.createElement('input'); chk.type = 'checkbox'; chk.checked = true; ls.appendChild(chk);
+    h('span', null, '40% slow clients', ls);
+
+    var pair = h('div', 'pair', null, stage);
+    var A = makePanel(pair, 'apache', 'Apache', 'prefork / worker MPM', [['active', 'Busy'], ['wait', 'Waiting'], ['served', 'Served'], ['lost', 'Timed out']]);
+    var N = makePanel(pair, 'nginx', 'nginx', 'event-driven workers', [['active', 'Open'], ['wait', 'Waiting'], ['served', 'Served'], ['lost', 'Timed out']]);
+    var lg = h('div', 'legend', null, stage);
+    lg.style.marginTop = '12px';
+    lg.innerHTML = '<span><i></i>quick client</span><span><i class="ring"></i>slow client (holds the connection longer)</span><span><i class="wait"></i>waiting for a free slot</span>';
+
+    var a = '<rect class="area" x="8" y="14" width="118" height="230" rx="8"/><text class="lbl" x="18" y="34">Waiting</text>';
+    var i, x, y;
+    for (i = 0; i < QCAP; i++) a += '<circle class="dot qd off" cx="' + (28 + (i % 4) * 24) + '" cy="' + (58 + Math.floor(i / 4) * 28) + '" r="8"/>';
+    a += '<text class="lbl qmore" x="18" y="236"></text>';
+    a += '<rect class="srv" x="138" y="14" width="274" height="230" rx="8"/><text class="ttl" x="150" y="34">Apache: 8 worker slots</text>';
+    for (i = 0; i < NSLOT; i++) {
+      x = 150 + (i % 2) * 130; y = 48 + Math.floor(i / 2) * 48;
+      a += '<rect class="slotbg" x="' + x + '" y="' + y + '" width="122" height="40" rx="5"/>';
+      a += '<text class="lbl" x="' + (x + 8) + '" y="' + (y + 16) + '">slot ' + (i + 1) + '</text>';
+      a += '<circle class="dot sc off" cx="' + (x + 108) + '" cy="' + (y + 13) + '" r="5"/>';
+      a += '<rect class="track" x="' + (x + 8) + '" y="' + (y + 24) + '" width="106" height="8" rx="3"/>';
+      a += '<rect class="fill sf" x="' + (x + 8) + '" y="' + (y + 24) + '" width="0" height="8" rx="3"/>';
+    }
+    A.svg.innerHTML = a;
+    var qd = A.svg.querySelectorAll('.qd'), qmore = A.svg.querySelector('.qmore'), sf = A.svg.querySelectorAll('.sf'), sbg = A.svg.querySelectorAll('.slotbg'), sc = A.svg.querySelectorAll('.sc');
+
+    var n = '<rect class="area" x="8" y="14" width="118" height="230" rx="8"/><text class="lbl" x="18" y="34">Waiting</text>';
+    n += '<text class="ttl" x="67" y="132" text-anchor="middle">none</text><text class="lbl" x="67" y="150" text-anchor="middle">accepted at once</text>';
+    n += '<rect class="srv" x="138" y="14" width="274" height="230" rx="8"/><text class="ttl" x="150" y="34">nginx: 2 workers</text>';
+    var w, j;
+    for (w = 0; w < 2; w++) {
+      var by = 48 + w * 98;
+      n += '<rect class="wbox" x="150" y="' + by + '" width="250" height="90" rx="6"/>';
+      n += '<text class="lbl" x="160" y="' + (by + 18) + '">worker ' + (w + 1) + ' (event loop)</text>';
+      n += '<text class="lbl wm' + w + '" x="392" y="' + (by + 18) + '" text-anchor="end"></text>';
+      for (j = 0; j < WCAP; j++) n += '<circle class="dot wd' + w + ' off" cx="' + (168 + (j % 18) * 13) + '" cy="' + (by + 38 + Math.floor(j / 18) * 13) + '" r="4.5"/>';
+    }
+    N.svg.innerHTML = n;
+    var wd = [N.svg.querySelectorAll('.wd0'), N.svg.querySelectorAll('.wd1')];
+    var wm = [N.svg.querySelector('.wm0'), N.svg.querySelector('.wm1')];
+
+    var rng, t, nextArr, cid, aSlots, aQ, aServed, aLost, nW, nOver, nServed, acc = 0;
+    function cnt(arr) { var c = 0; for (var k = 0; k < arr.length; k++) if (arr[k]) c++; return c; }
+
+    function spawn() {
+      var slowC = slowOn && rng() < 0.4;
+      var c = { id: cid++, dur: slowC ? 4 + 3 * rng() : 0.6 + 0.8 * rng(), slow: slowC, t0: t };
+      var free = aSlots.indexOf(null);
+      if (free >= 0) aSlots[free] = { c: c, start: t }; else aQ.push(c);
+      var wi = (cnt(nW[0]) + nOver[0].length) <= (cnt(nW[1]) + nOver[1].length) ? 0 : 1;
+      var jj = nW[wi].indexOf(null);
+      if (jj >= 0) nW[wi][jj] = { c: c, start: t }; else nOver[wi].push({ c: c, start: t });
+    }
+    function step(dt) {
+      var k, s;
+      t += dt;
+      while (t >= nextArr) { spawn(); nextArr += INTERVAL[traffic] * (0.6 + 0.8 * rng()); }
+      for (k = 0; k < NSLOT; k++) {
+        s = aSlots[k];
+        if (s && t - s.start >= s.c.dur) { aSlots[k] = null; aServed++; }
+      }
+      aQ = aQ.filter(function (c) { if (t - c.t0 > 5) { aLost++; return false; } return true; });
+      for (k = 0; k < NSLOT; k++) {
+        if (!aSlots[k] && aQ.length) aSlots[k] = { c: aQ.shift(), start: t };
+      }
+      for (var wi = 0; wi < 2; wi++) {
+        for (k = 0; k < WCAP; k++) {
+          s = nW[wi][k];
+          if (s && t - s.start >= s.c.dur) { nW[wi][k] = null; nServed++; }
+        }
+        nOver[wi] = nOver[wi].filter(function (o) { if (t - o.start >= o.c.dur) { nServed++; return false; } return true; });
+      }
+    }
+    function render() {
+      var busy = 0, k, s;
+      for (k = 0; k < NSLOT; k++) {
+        s = aSlots[k];
+        if (s) {
+          busy++;
+          var rem = Math.max(0, 1 - (t - s.start) / s.c.dur);
+          sf[k].setAttribute('width', (106 * rem).toFixed(1));
+          sbg[k].setAttribute('class', 'slotbg busy');
+          sc[k].setAttribute('class', 'dot sc' + (s.c.slow ? ' ring' : ''));
+        } else {
+          sf[k].setAttribute('width', '0');
+          sbg[k].setAttribute('class', 'slotbg');
+          sc[k].setAttribute('class', 'dot sc off');
+        }
+      }
+      for (k = 0; k < QCAP; k++) {
+        var c = aQ[k];
+        qd[k].setAttribute('class', c ? 'dot qd wait' + (c.slow ? ' ring' : '') : 'dot qd off');
+      }
+      qmore.textContent = aQ.length > QCAP ? '+' + (aQ.length - QCAP) + ' more' : '';
+      var open = 0, wi;
+      for (wi = 0; wi < 2; wi++) {
+        open += nOver[wi].length;
+        for (k = 0; k < WCAP; k++) {
+          s = nW[wi][k];
+          if (s) {
+            open++;
+            wd[wi][k].setAttribute('class', 'dot wd' + wi + (s.c.slow ? ' ring' : ''));
+            wd[wi][k].style.opacity = (0.65 + 0.35 * Math.sin(t * 5 + k * 1.7 + wi)).toFixed(2);
+          } else {
+            wd[wi][k].setAttribute('class', 'dot wd' + wi + ' off');
+          }
+        }
+        wm[wi].textContent = nOver[wi].length ? '+' + nOver[wi].length : '';
+      }
+      A.vals.active.textContent = busy + '/' + NSLOT;
+      A.vals.wait.textContent = String(aQ.length);
+      A.vals.served.textContent = String(aServed);
+      A.vals.lost.textContent = String(aLost);
+      N.vals.active.textContent = String(open);
+      N.vals.wait.textContent = '0';
+      N.vals.served.textContent = String(nServed);
+      N.vals.lost.textContent = '0';
+      if (aQ.length > 0) A.status.textContent = 'All ' + NSLOT + ' slots are busy, so ' + aQ.length + ' client' + (aQ.length === 1 ? ' is' : 's are') + ' waiting.' + (aLost ? ' Some waited too long and timed out.' : '');
+      else A.status.textContent = busy + ' of ' + NSLOT + ' slots in use. Every connection holds a whole slot until it finishes.';
+      N.status.textContent = open + ' connections are open on 2 workers. Nobody waits, and a slow client costs only a little memory.';
+    }
+    function reset() {
+      rng = mulberry(7); t = 0; nextArr = 0.2; cid = 0; acc = 0;
+      aSlots = []; for (var k = 0; k < NSLOT; k++) aSlots.push(null);
+      aQ = []; aServed = 0; aLost = 0;
+      nW = [new Array(WCAP).fill(null), new Array(WCAP).fill(null)];
+      nOver = [[], []]; nServed = 0;
+      for (var q = 0; q < 240; q++) step(STEP);
+      render();
+    }
+    sel.addEventListener('change', function () { traffic = parseInt(sel.value, 10) || 1; reset(); });
+    chk.addEventListener('change', function () { slowOn = chk.checked; reset(); });
+    reset();
+    return {
+      tick: function (dt) { acc += dt; while (acc >= STEP) { acc -= STEP; step(STEP); } render(); },
+      restart: reset
+    };
+  }
+
+  /* ---------- Scenario 2: memory ---------- */
+  function mountMem(stage) {
+    var MAXC = 1000, MAXPROC = 256, PROC_MB = 20, APACHE_BASE = 30, NG_BASE = 10, NG_PER_CONN = 0.004, AXIS = 5200;
+    var conns = 300, dir = 1;
+
+    var row = h('div', 'sliderrow', null, stage);
+    row.style.marginBottom = '16px';
+    var lab = h('label', null, 'Concurrent connections', row);
+    lab.setAttribute('for', 'conns');
+    var rng = document.createElement('input');
+    rng.type = 'range'; rng.id = 'conns'; rng.min = '0'; rng.max = String(MAXC); rng.step = '10'; rng.value = String(conns);
+    row.appendChild(rng);
+    var out = h('output', null, '', row);
+
+    var pair = h('div', 'pair', null, stage);
+    function memPanel(cls, name, sub, cellsCls, ncells) {
+      var p = makePanel(pair, cls, name, sub, null);
+      p.svg.parentNode.removeChild(p.svg);
+      var cells = h('div', 'cells ' + cellsCls, null, p.root);
+      p.root.insertBefore(cells, p.status);
+      var arr = [];
+      for (var i = 0; i < ncells; i++) arr.push(h('span', null, null, cells));
+      var bar = h('div', 'bar', null, null);
+      var fill = h('div', null, null, bar);
+      p.root.insertBefore(bar, p.status);
+      var val = h('div', 'memval', null, null);
+      var big = h('strong', null, '', val);
+      var small = h('span', null, '', val);
+      var badge = h('span', 'badge', '', val);
+      p.root.insertBefore(val, p.status);
+      return { p: p, cells: arr, fill: fill, big: big, small: small, badge: badge };
+    }
+    var A = memPanel('apache', 'Apache', 'prefork + mod_php, model', '', MAXPROC);
+    var N = memPanel('nginx', 'nginx', 'workers, model', 'few', 2);
+    A.p.root.querySelector('.cells').setAttribute('aria-label', 'One square per Apache process');
+    A.p.status.textContent = 'Each square is one process, about ' + PROC_MB + ' MB with PHP loaded. Limit: ' + MAXPROC + ' processes (MaxRequestWorkers).';
+    N.p.status.textContent = 'The two squares are the workers. Extra connections only add a few KB each.';
+
+    function fmt(mb) { return mb >= 1000 ? (mb / 1000).toFixed(1) + ' GB' : (mb < 100 ? mb.toFixed(1) : String(Math.round(mb))) + ' MB'; }
+    function update() {
+      var c = Math.round(conns);
+      var procs = Math.min(c, MAXPROC);
+      var memA = APACHE_BASE + procs * PROC_MB;
+      var memN = NG_BASE + c * NG_PER_CONN;
+      out.textContent = c + ' conn';
+      rng.value = String(c);
+      for (var i = 0; i < MAXPROC; i++) A.cells[i].className = i < procs ? 'on' : '';
+      A.fill.style.width = (memA / AXIS * 100).toFixed(1) + '%';
+      N.fill.style.width = Math.max(0.6, memN / AXIS * 100).toFixed(2) + '%';
+      A.big.textContent = fmt(memA);
+      A.small.textContent = procs + ' processes';
+      A.badge.textContent = c > MAXPROC ? (c - MAXPROC) + ' clients waiting (limit reached)' : '';
+      N.big.textContent = fmt(memN);
+      N.small.textContent = '2 workers, ' + c + ' connections';
+      N.badge.textContent = '';
+      N.cells[0].className = 'on'; N.cells[1].className = 'on';
+    }
+    rng.addEventListener('input', function () {
+      conns = parseFloat(rng.value) || 0;
+      if (window.__setRunning) window.__setRunning(false);
+      update();
+    });
+    update();
+    return {
+      tick: function (dt) {
+        conns += dir * 70 * dt;
+        if (conns >= MAXC) { conns = MAXC; dir = -1; }
+        if (conns <= 0) { conns = 0; dir = 1; }
+        update();
+      },
+      restart: function () { conns = 0; dir = 1; update(); }
+    };
+  }
+
+  var SCEN = [
+    {
+      name: 'Connections', mount: mountConn,
+      t: 'A slot per connection, or an event loop',
+      d: 'Apache with the prefork or worker MPM gives each connection its own process or thread for as long as the connection lasts, so slow clients keep slots busy while others queue. An nginx worker runs an event loop. It keeps many connections open and does work only when data is ready, so a slow client costs very little.',
+      r: 'Apache 2.4 usually runs the event MPM today, which frees threads between requests on idle keep-alive connections and narrows this gap. Both sides get the same random arrivals. This is a simplified model of the design, not a benchmark.'
+    },
+    {
+      name: 'Memory', mount: mountMem,
+      t: 'Memory that grows, and memory that stays flat',
+      d: 'When every busy connection needs its own process, memory rises with traffic until the process limit is reached, and then new clients wait. With an event loop, a connection is a small data structure, so thousands of them fit in the same worker.',
+      r: 'The numbers are an illustrative model: about 20 MB per Apache process with mod_php, a limit of 256, and about 4 KB per nginx connection plus roughly 10 MB for the master and workers. Real figures depend on your modules, your application and your settings.'
+    }
+  ];
+
+  var stage = document.getElementById('stage'), extra = document.getElementById('extra'), tabs = document.getElementById('tabs');
+  var btnPlay = document.getElementById('play'), btnRestart = document.getElementById('restart'), selSpeed = document.getElementById('speed');
+  var nT = document.getElementById('n-t'), nD = document.getElementById('n-d'), nR = document.getElementById('n-r');
+  var cur = null, running = !reduce, speed = 1;
+
+  function setRunning(v) {
+    running = v;
+    btnPlay.textContent = v ? 'Pause' : 'Play';
+    btnPlay.setAttribute('aria-pressed', v ? 'true' : 'false');
+  }
+  window.__setRunning = setRunning;
+
+  function choose(i) {
+    stage.textContent = ''; extra.textContent = '';
+    var ts = tabs.querySelectorAll('button');
+    for (var k = 0; k < ts.length; k++) ts[k].setAttribute('aria-selected', k === i ? 'true' : 'false');
+    cur = SCEN[i].mount(stage, extra);
+    nT.textContent = SCEN[i].t;
+    nD.textContent = SCEN[i].d;
+    nR.textContent = '';
+    var st = document.createElement('strong'); st.textContent = 'In practice. ';
+    nR.appendChild(st);
+    nR.appendChild(document.createTextNode(SCEN[i].r));
+  }
+
+  SCEN.forEach(function (s, i) {
+    var b = h('button', 'tab', s.name, tabs);
+    b.type = 'button'; b.setAttribute('role', 'tab');
+    b.addEventListener('click', function () { choose(i); });
+  });
+  btnPlay.addEventListener('click', function () { setRunning(!running); });
+  btnRestart.addEventListener('click', function () { if (cur) cur.restart(); });
+  selSpeed.addEventListener('change', function () { speed = parseFloat(selSpeed.value) || 1; });
+  setRunning(running);
+
+  var last = performance.now();
+  function frame(now) {
+    requestAnimationFrame(frame);
+    var dt = Math.min(0.1, (now - last) / 1000);
+    last = now;
+    if (running && cur) cur.tick(dt * speed);
+  }
+  choose(0);
+  requestAnimationFrame(frame);
+})();
+</script>
