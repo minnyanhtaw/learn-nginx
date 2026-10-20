@@ -1,0 +1,512 @@
+<title>Nginx Request Workflow</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<style>
+/* Layout: scenario tabs, one wide diagram (client -> nginx stages -> backends), controls, then step list beside a detail panel. */
+:root {
+  --bg: #f2f6f4;
+  --surface: #ffffff;
+  --ink: #11201a;
+  --muted: #55675f;
+  --line: #cfdad5;
+  --accent: #0b8a47;
+  --accent-soft: #dff3e8;
+  --res: #2563c9;
+  --code-bg: #e8efec;
+  --font-body: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0b1410;
+    --surface: #121e19;
+    --ink: #e4efe9;
+    --muted: #93a9a0;
+    --line: #28392f;
+    --accent: #3fdc86;
+    --accent-soft: #14352330;
+    --res: #6ba6ff;
+    --code-bg: #0a110e;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0b1410;
+  --surface: #121e19;
+  --ink: #e4efe9;
+  --muted: #93a9a0;
+  --line: #28392f;
+  --accent: #3fdc86;
+  --accent-soft: #14352330;
+  --res: #6ba6ff;
+  --code-bg: #0a110e;
+  color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+body {
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--font-body);
+  font-size: 15px;
+  line-height: 1.55;
+  padding-block: 28px 48px;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+}
+.wrap { max-width: 1040px; margin: 0 auto; display: flex; flex-direction: column; gap: 18px; }
+h1 { font-size: clamp(1.5rem, 4vw, 2.1rem); line-height: 1.15; margin: 0; letter-spacing: -0.01em; text-wrap: balance; }
+.lede { margin: 6px 0 0; color: var(--muted); max-width: 62ch; }
+.eyebrow { font-family: var(--font-mono); font-size: 12px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--accent); margin: 0 0 8px; }
+
+.tabs { display: flex; flex-wrap: wrap; gap: 8px; }
+.tab {
+  font: inherit; font-size: 14px; font-weight: 500;
+  padding: 8px 14px; border-radius: 6px;
+  border: 1px solid var(--line); background: var(--surface); color: var(--ink);
+  cursor: pointer;
+}
+.tab[aria-selected="true"] { background: var(--accent); border-color: var(--accent); color: #fff; }
+:root[data-theme="dark"] .tab[aria-selected="true"] { color: #062314; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .tab[aria-selected="true"] { color: #062314; } }
+button:focus-visible, select:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+.diagram { border: 1px solid var(--line); background: var(--surface); border-radius: 10px; overflow-x: auto; }
+.diagram svg { display: block; width: 100%; min-width: 640px; height: auto; }
+
+.link { fill: none; stroke: var(--line); stroke-width: 2; transition: opacity .2s; }
+.link.dim { opacity: .3; }
+.box { fill: none; stroke: var(--line); stroke-width: 1.5; stroke-dasharray: 5 4; }
+.box-title { font-family: var(--font-mono); font-size: 12px; font-weight: 500; fill: var(--muted); letter-spacing: 0.06em; }
+.node rect { fill: var(--surface); stroke: var(--line); stroke-width: 1.5; transition: fill .2s, stroke .2s; }
+.node .t { font-size: 13.5px; font-weight: 600; fill: var(--ink); }
+.node .s { font-family: var(--font-mono); font-size: 10.5px; fill: var(--muted); }
+.node { transition: opacity .2s; }
+.node.dim { opacity: .32; }
+.node.on rect { fill: var(--accent-soft); stroke: var(--accent); stroke-width: 2.5; }
+.pk { pointer-events: none; }
+.pk circle { stroke: var(--surface); stroke-width: 2; }
+.pk.req circle { fill: var(--accent); filter: drop-shadow(0 0 5px var(--accent)); }
+.pk.res circle { fill: var(--res); filter: drop-shadow(0 0 5px var(--res)); }
+.pk text { font-family: var(--font-mono); font-size: 11px; font-weight: 500; fill: var(--ink); text-anchor: middle; paint-order: stroke; stroke: var(--surface); stroke-width: 4px; stroke-linejoin: round; }
+.legend text { font-family: var(--font-mono); font-size: 11px; fill: var(--muted); }
+
+.controls { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.btn {
+  font: inherit; font-size: 14px; font-weight: 500;
+  padding: 7px 14px; border-radius: 6px;
+  border: 1px solid var(--line); background: var(--surface); color: var(--ink); cursor: pointer;
+}
+.btn[aria-pressed="true"] { border-color: var(--accent); color: var(--accent); }
+.btn:disabled { opacity: .45; cursor: default; }
+.controls select {
+  font: inherit; font-size: 14px; padding: 7px 10px; border-radius: 6px;
+  border: 1px solid var(--line); background: var(--surface); color: var(--ink);
+}
+.counter { margin-left: auto; font-family: var(--font-mono); font-size: 13px; color: var(--muted); font-variant-numeric: tabular-nums; }
+
+.lower { display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 7fr); gap: 18px; align-items: start; }
+.steps { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; counter-reset: s; }
+.steps li { counter-increment: s; }
+.steps button {
+  width: 100%; text-align: left; font: inherit; font-size: 14px;
+  display: grid; grid-template-columns: 28px 1fr; gap: 6px; align-items: baseline;
+  padding: 8px 10px; border: 1px solid transparent; border-radius: 6px;
+  background: transparent; color: var(--muted); cursor: pointer;
+}
+.steps button::before { content: counter(s); font-family: var(--font-mono); font-size: 12px; font-variant-numeric: tabular-nums; }
+.steps button:hover { background: var(--surface); }
+.steps button.done { color: var(--ink); }
+.steps button[aria-current="step"] { background: var(--surface); border-color: var(--accent); color: var(--ink); font-weight: 600; }
+.steps button[aria-current="step"]::before { color: var(--accent); }
+
+.detail { border: 1px solid var(--line); background: var(--surface); border-radius: 10px; padding: 18px 20px; display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.detail .n { font-family: var(--font-mono); font-size: 12px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--accent); margin: 0; }
+.detail h2 { margin: 0; font-size: 1.2rem; line-height: 1.25; text-wrap: balance; }
+.detail p { margin: 0; max-width: 62ch; }
+.detail pre {
+  margin: 0; padding: 12px 14px; border-radius: 6px; background: var(--code-bg);
+  font-family: var(--font-mono); font-size: 13px; line-height: 1.55; overflow-x: auto; white-space: pre;
+}
+.detail pre:empty { display: none; }
+
+.foot { color: var(--muted); font-size: 13px; }
+
+@media (max-width: 760px) {
+  .lower { grid-template-columns: minmax(0, 1fr); }
+  .detail { order: -1; }
+  .counter { margin-left: 0; width: 100%; }
+}
+</style>
+
+<div class="wrap">
+  <header>
+    <p class="eyebrow">nginx / workflow</p>
+    <h1>How nginx handles a request</h1>
+    <p class="lede">Pick a scenario and follow one request from the browser, through an nginx worker, to the response. Click any step to jump to it.</p>
+  </header>
+
+  <div class="tabs" role="tablist" id="tabs" aria-label="Scenarios"></div>
+
+  <div class="diagram">
+    <svg id="svg" viewBox="0 0 860 430" role="img" aria-label="Animated diagram of a request moving from the browser through nginx stages to a backend and back">
+      <g>
+        <path class="link" d="M140 210H205"/>
+        <path class="link" d="M205 90V354"/>
+        <path class="link" d="M205 90H290"/>
+        <path class="link" d="M205 354H290"/>
+        <path class="link" d="M395 112V134M395 178V200M395 244V266M395 310V332"/>
+        <path class="link" d="M500 354H610"/>
+        <path class="link" id="l-static" d="M610 354V85H700"/>
+        <path class="link" id="l-cache" d="M610 155H700"/>
+        <path class="link" id="l-app1" d="M610 275H700"/>
+        <path class="link" id="l-app2" d="M610 354H700"/>
+      </g>
+
+      <rect class="box" x="270" y="20" width="250" height="392" rx="10"/>
+      <text class="box-title" x="290" y="47">NGINX WORKER</text>
+      <text class="box-title" x="290" y="397" style="font-weight:400">master  &#8594;  worker 1 &#183; 2 &#183; &#8230; n</text>
+
+      <g class="node" id="n-client"><rect x="20" y="170" width="120" height="80" rx="8"/><text class="t" x="80" y="205" text-anchor="middle">Browser</text><text class="s" x="80" y="224" text-anchor="middle">203.0.113.5</text></g>
+
+      <g class="node" id="n-accept"><rect x="290" y="68" width="210" height="44" rx="6"/><text class="t" x="305" y="87">Accept &amp; parse</text><text class="s" x="305" y="103">epoll event loop</text></g>
+      <g class="node" id="n-tls"><rect x="290" y="134" width="210" height="44" rx="6"/><text class="t" x="305" y="153">TLS</text><text class="s" x="305" y="169">ssl_certificate</text></g>
+      <g class="node" id="n-server"><rect x="290" y="200" width="210" height="44" rx="6"/><text class="t" x="305" y="219">server block</text><text class="s" x="305" y="235">listen + server_name</text></g>
+      <g class="node" id="n-loc"><rect x="290" y="266" width="210" height="44" rx="6"/><text class="t" x="305" y="285">location</text><text class="s" x="305" y="301">match the URI</text></g>
+      <g class="node" id="n-hand"><rect x="290" y="332" width="210" height="44" rx="6"/><text class="t" x="305" y="351">handler</text><text class="s" x="305" y="367">root / proxy_pass / cache</text></g>
+
+      <g class="node" id="n-static"><rect x="700" y="60" width="150" height="50" rx="6"/><text class="t" x="715" y="82">Static files</text><text class="s" x="715" y="98">/var/www/mysite</text></g>
+      <g class="node" id="n-cache"><rect x="700" y="130" width="150" height="50" rx="6"/><text class="t" x="715" y="152">Proxy cache</text><text class="s" x="715" y="168">/var/cache/nginx</text></g>
+      <g class="node" id="n-app1"><rect x="700" y="250" width="150" height="50" rx="6"/><text class="t" x="715" y="272">App server 1</text><text class="s" x="715" y="288">127.0.0.1:3000</text></g>
+      <g class="node" id="n-app2"><rect x="700" y="329" width="150" height="50" rx="6"/><text class="t" x="715" y="351">App server 2</text><text class="s" x="715" y="367">127.0.0.1:3001</text></g>
+
+      <g class="legend">
+        <circle cx="40" cy="300" r="6" fill="var(--accent)"/><text x="54" y="304">request</text>
+        <circle cx="40" cy="324" r="6" fill="var(--res)"/><text x="54" y="328">response</text>
+      </g>
+
+      <g class="pk req" id="pk"><circle r="7"/><text id="pkl" y="-13"></text></g>
+    </svg>
+  </div>
+
+  <div class="controls">
+    <button class="btn" id="prev" type="button">&#8592; Prev</button>
+    <button class="btn" id="next" type="button">Next &#8594;</button>
+    <button class="btn" id="auto" type="button" aria-pressed="true">Auto-play</button>
+    <button class="btn" id="restart" type="button">Restart</button>
+    <label><span class="foot">Speed </span>
+      <select id="speed" aria-label="Animation speed">
+        <option value="0.5">0.5x</option>
+        <option value="1" selected>1x</option>
+        <option value="2">2x</option>
+      </select>
+    </label>
+    <span class="counter" id="counter"></span>
+  </div>
+
+  <div class="lower">
+    <ol class="steps" id="steps" aria-label="Steps"></ol>
+    <section class="detail" aria-live="polite">
+      <p class="n" id="d-n"></p>
+      <h2 id="d-t"></h2>
+      <p id="d-d"></p>
+      <pre id="d-c"></pre>
+    </section>
+  </div>
+
+  <p class="foot">Config snippets match the chapters of the nginx guide: 03 HTTP, 04 HTTPS, 05 reverse proxy, 06 load balancing, 07 caching.</p>
+</div>
+
+<script>
+(function () {
+  var X = 395;
+  var SY = { accept: 90, tls: 156, server: 222, loc: 288, hand: 354 };
+  var TY = { static: 85, cache: 155, app1: 275, app2: 354 };
+
+  function clientTo(s) { return [[140, 210], [205, 210], [205, SY[s]], [X, SY[s]]]; }
+  function chain() { return Array.prototype.map.call(arguments, function (k) { return [X, SY[k]]; }); }
+  function toT(t) { return [[X, 354], [610, 354], [610, TY[t]], [700, TY[t]]]; }
+  function rev(a) { return a.slice().reverse(); }
+  function cat() { return Array.prototype.concat.apply([], arguments); }
+  function full() { return cat(clientTo('accept'), chain('accept', 'server', 'loc', 'hand')); }
+
+  function S(title, text, o) { o = o || {}; o.t = title; o.d = text; return o; }
+
+  var SCEN = [
+    {
+      name: 'Static file',
+      use: ['client', 'accept', 'server', 'loc', 'hand', 'static'],
+      steps: [
+        S('Browser sends a request', 'The browser opens a TCP connection to port 80 and sends an HTTP request for an image.',
+          { pts: clientTo('accept'), label: 'GET', hl: ['accept'], code: 'GET /logo.png HTTP/1.1\nHost: mysite.com' }),
+        S('A worker takes the connection', 'The master process started the workers earlier. One worker accepts the connection in its event loop and reads the request line and headers. It does not block, so the same worker keeps serving thousands of other connections.',
+          { hl: ['accept'], code: 'worker_processes auto;\nevents { worker_connections 1024; }' }),
+        S('Choose the server block', 'Nginx compares the port and the Host header with every listen and server_name. mysite.com matches this block.',
+          { pts: chain('accept', 'server'), label: 'GET', hl: ['server'], code: 'server {\n  listen 80;\n  server_name mysite.com;\n}' }),
+        S('Choose the location', 'The URI /logo.png is matched against the location blocks. Exact matches win first, then the longest prefix, and regex locations are checked in order.',
+          { pts: chain('server', 'loc'), label: 'GET', hl: ['loc'], code: 'location ~* \\.(png|css|js)$ {\n  expires 30d;\n}' }),
+        S('Build the file path', 'root plus the URI gives the path on disk. try_files checks that the file exists before serving it.',
+          { pts: chain('loc', 'hand'), label: 'GET', hl: ['hand'], code: 'root /var/www/mysite;\ntry_files $uri =404;' }),
+        S('Read the file from disk', 'The worker reads /var/www/mysite/logo.png. With sendfile on, the kernel copies the data from disk to the socket without passing it through nginx memory.',
+          { pts: toT('static'), label: 'read', hl: ['static'], code: 'sendfile on;\ntcp_nopush on;' }),
+        S('File content comes back', 'The bytes return to the handler, which prepares the response headers.',
+          { pts: rev(toT('static')), kind: 'res', label: 'data', hl: ['hand'] }),
+        S('Send the response', 'Nginx sends the headers and the file to the browser. The expires directive adds caching headers.',
+          { pts: rev(clientTo('hand')), kind: 'res', label: '200', hl: ['client'], code: 'HTTP/1.1 200 OK\nContent-Type: image/png\nContent-Length: 18342\nCache-Control: max-age=2592000' }),
+        S('Write the log entry', 'The request is appended to access.log. Nothing was sent to an application server, so this took a fraction of a millisecond.',
+          { hl: ['hand'], code: '203.0.113.5 - - [20/Oct/2026:12:20:01 +0630]\n"GET /logo.png HTTP/1.1" 200 18342' })
+      ]
+    },
+    {
+      name: 'Reverse proxy',
+      use: ['client', 'accept', 'server', 'loc', 'hand', 'app1'],
+      steps: [
+        S('Browser sends an API request', 'The request is for data that only the application can produce.',
+          { pts: clientTo('accept'), label: 'GET', hl: ['accept'], code: 'GET /api/users HTTP/1.1\nHost: app.example.com' }),
+        S('A worker takes the connection', 'A worker accepts it and parses the headers in its event loop.',
+          { hl: ['accept'] }),
+        S('Choose the server block', 'The Host header app.example.com selects this server block.',
+          { pts: chain('accept', 'server'), label: 'GET', hl: ['server'], code: 'server {\n  listen 80;\n  server_name app.example.com;\n}' }),
+        S('Choose the location', 'The prefix /api/ matches the location that proxies to the application.',
+          { pts: chain('server', 'loc'), label: 'GET', hl: ['loc'], code: 'location /api/ {\n  proxy_pass http://127.0.0.1:3000;\n}' }),
+        S('Prepare the upstream request', 'Nginx opens or reuses a connection to the app and adds headers so the app still knows the real client address and host.',
+          { pts: chain('loc', 'hand'), label: 'GET', hl: ['hand'], code: 'proxy_set_header Host $host;\nproxy_set_header X-Real-IP $remote_addr;\nproxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;' }),
+        S('Forward to the application', 'The request travels to the app on port 3000. The browser never talks to the app directly.',
+          { pts: toT('app1'), label: 'GET', hl: ['app1'] }),
+        S('The app works on it', 'The app queries its database and builds the answer. While it works, the nginx worker is free to serve other clients.',
+          { hl: ['app1'] }),
+        S('App sends its answer', 'The response returns to nginx. Buffering lets nginx read it quickly so a slow client does not keep the app busy.',
+          { pts: rev(toT('app1')), kind: 'res', label: 'JSON', hl: ['hand'], code: 'proxy_buffering on;' }),
+        S('Send it to the browser', 'Nginx forwards the response to the client.',
+          { pts: rev(clientTo('hand')), kind: 'res', label: '200', hl: ['client'], code: 'HTTP/1.1 200 OK\nContent-Type: application/json' }),
+        S('Write the log entry', 'The log can include how long the app took, which helps find slow endpoints.',
+          { hl: ['hand'], code: '... "GET /api/users HTTP/1.1" 200 512\nrt=0.043 urt=0.041' })
+      ]
+    },
+    {
+      name: 'Load balancing',
+      use: ['client', 'accept', 'server', 'loc', 'hand', 'app1', 'app2'],
+      steps: [
+        S('Request 1 arrives', 'It goes through server and location matching exactly as in the earlier scenarios, then reaches proxy_pass with an upstream group as its target.',
+          { pts: full(), label: 'REQ 1', hl: ['hand'], code: 'location / {\n  proxy_pass http://backend;\n}' }),
+        S('Pick a server: round robin', 'The default method hands each new request to the next server in the list. Request 1 goes to App 1.',
+          { hl: ['hand'], code: 'upstream backend {\n  server 127.0.0.1:3000;\n  server 127.0.0.1:3001;\n}' }),
+        S('Forward to App 1', 'Nginx sends the request to the first server.',
+          { pts: toT('app1'), label: 'REQ 1', hl: ['app1'] }),
+        S('Response goes back', 'App 1 answers and nginx relays the response to the browser.',
+          { pts: cat(rev(toT('app1')), rev(clientTo('hand'))), kind: 'res', label: '200', hl: ['client'] }),
+        S('Request 2 arrives', 'A new request comes in and is matched the same way.',
+          { pts: full(), label: 'REQ 2', hl: ['hand'] }),
+        S('Next server: App 2', 'Round robin moves on to the next entry. If App 2 were down, nginx would skip it after max_fails failures and use App 1 instead.',
+          { hl: ['hand'], code: 'server 127.0.0.1:3001 max_fails=3 fail_timeout=30s;' }),
+        S('Forward to App 2', 'The second request is handled by the second server.',
+          { pts: toT('app2'), label: 'REQ 2', hl: ['app2'] }),
+        S('Response goes back', 'Both servers share the load and the browser sees one address.',
+          { pts: cat(rev(toT('app2')), rev(clientTo('hand'))), kind: 'res', label: '200', hl: ['client'] }),
+        S('Other balancing methods', 'Change the method with one line inside the upstream block.',
+          { hl: ['hand'], code: 'least_conn;                  # fewest active connections\nip_hash;                     # same client, same server\nserver 127.0.0.1:3000 weight=3;' })
+      ]
+    },
+    {
+      name: 'Cache MISS then HIT',
+      use: ['client', 'accept', 'server', 'loc', 'hand', 'cache', 'app1'],
+      steps: [
+        S('Request 1 arrives', 'The first request for /products reaches the handler, which has proxy_cache enabled.',
+          { pts: full(), label: 'REQ 1', hl: ['hand'], code: 'GET /products HTTP/1.1\nHost: shop.example.com' }),
+        S('Look in the cache', 'Nginx builds a cache key from the request and looks it up on disk.',
+          { pts: toT('cache'), label: 'lookup', hl: ['cache'], code: 'proxy_cache app_cache;\nproxy_cache_key "$scheme$request_method$host$request_uri";' }),
+        S('MISS', 'Nothing is stored for this key yet, so the backend has to answer.',
+          { hl: ['cache'], code: 'X-Cache-Status: MISS' }),
+        S('Back to the handler', 'The cache has nothing, so nginx continues to the upstream.',
+          { pts: rev(toT('cache')), label: 'miss', hl: ['hand'] }),
+        S('Ask the application', 'The request goes to the app server.',
+          { pts: toT('app1'), label: 'GET', hl: ['app1'] }),
+        S('The app answers', 'The app does the full work and sends the response back.',
+          { pts: rev(toT('app1')), kind: 'res', label: 'HTML', hl: ['hand'] }),
+        S('Store a copy', 'Because the response is a 200, nginx saves it to disk for the next ten minutes.',
+          { pts: toT('cache'), kind: 'res', label: 'store', hl: ['cache'], code: 'proxy_cache_valid 200 301 10m;' }),
+        S('Send it to the browser', 'The first visitor pays the full cost.',
+          { pts: cat(rev(toT('cache')), rev(clientTo('hand'))), kind: 'res', label: '200', hl: ['client'], code: 'X-Cache-Status: MISS' }),
+        S('Request 2 arrives', 'A different visitor asks for the same URL.',
+          { pts: full(), label: 'REQ 2', hl: ['hand'] }),
+        S('Cache HIT', 'The key is found and the stored copy is still fresh.',
+          { pts: toT('cache'), label: 'lookup', hl: ['cache'], code: 'X-Cache-Status: HIT' }),
+        S('Serve from cache', 'The response comes straight from disk. App 1 was never contacted, which saves CPU, database queries and time.',
+          { pts: cat(rev(toT('cache')), rev(clientTo('hand'))), kind: 'res', label: '200', hl: ['client'], code: 'proxy_cache_use_stale error timeout updating;' })
+      ]
+    },
+    {
+      name: 'HTTPS (TLS)',
+      use: ['client', 'accept', 'tls', 'server', 'loc', 'hand', 'app1'],
+      steps: [
+        S('Client Hello', 'After the TCP connection, the browser starts the TLS handshake. It lists the protocol versions and ciphers it supports and the host name it wants (SNI).',
+          { pts: cat(clientTo('accept'), chain('accept', 'tls')), label: 'Hello', hl: ['tls'], code: 'ClientHello  TLS 1.3\nSNI: example.com' }),
+        S('Certificate comes back', 'Nginx answers with its certificate chain. The browser checks that a trusted authority signed it and that the name matches.',
+          { pts: rev(cat(clientTo('accept'), chain('accept', 'tls'))), kind: 'res', label: 'cert', hl: ['client'], code: 'ssl_certificate     /etc/letsencrypt/live/example.com/fullchain.pem;\nssl_certificate_key /etc/letsencrypt/live/example.com/privkey.pem;' }),
+        S('Session keys agreed', 'Both sides derive the same session keys. From this point everything is encrypted.',
+          { pts: cat(clientTo('accept'), chain('accept', 'tls')), label: 'keys', hl: ['tls'], code: 'ssl_protocols TLSv1.2 TLSv1.3;\nssl_session_cache shared:SSL:10m;' }),
+        S('Request is decrypted', 'The worker decrypts the request. Nginx now sees plain HTTP, and your app never has to handle certificates.',
+          { hl: ['tls'], code: 'GET /dashboard HTTP/1.1   (inside TLS)\nHost: example.com' }),
+        S('Match server and location', 'The block listening on 443 with ssl is selected, then the location.',
+          { pts: chain('tls', 'server', 'loc', 'hand'), label: 'GET', hl: ['hand'], code: 'server {\n  listen 443 ssl;\n  server_name example.com;\n  location / { proxy_pass http://127.0.0.1:3000; }\n}' }),
+        S('Forward as plain HTTP', 'Inside your own network the request travels unencrypted. The forwarded protocol header tells the app the user is on HTTPS.',
+          { pts: toT('app1'), label: 'GET', hl: ['app1'], code: 'proxy_set_header X-Forwarded-Proto $scheme;' }),
+        S('App replies', 'The application answers over plain HTTP.',
+          { pts: rev(toT('app1')), kind: 'res', label: 'HTML', hl: ['hand'] }),
+        S('Encrypt and send', 'Nginx encrypts the response with the session keys and sends it. The HSTS header tells the browser to use HTTPS next time.',
+          { pts: cat(chain('hand', 'tls'), rev(cat(clientTo('accept'), chain('accept', 'tls')))), kind: 'res', label: 'TLS', hl: ['client'], code: 'Strict-Transport-Security: max-age=63072000' }),
+        S('Port 80 only redirects', 'A request to http://example.com reaches a separate server block on port 80 that sends the browser to HTTPS.',
+          { hl: ['server'], code: 'server {\n  listen 80;\n  return 301 https://$host$request_uri;\n}' })
+      ]
+    }
+  ];
+
+  var NODES = ['client', 'accept', 'tls', 'server', 'loc', 'hand', 'static', 'cache', 'app1', 'app2'];
+  var el = {};
+  NODES.forEach(function (n) { el[n] = document.getElementById('n-' + n); });
+  var LINKS = { static: 'l-static', cache: 'l-cache', app1: 'l-app1', app2: 'l-app2' };
+
+  var pk = document.getElementById('pk');
+  var pkl = document.getElementById('pkl');
+  var tabs = document.getElementById('tabs');
+  var stepsEl = document.getElementById('steps');
+  var counter = document.getElementById('counter');
+  var dN = document.getElementById('d-n'), dT = document.getElementById('d-t'), dD = document.getElementById('d-d'), dC = document.getElementById('d-c');
+  var btnPrev = document.getElementById('prev'), btnNext = document.getElementById('next'), btnAuto = document.getElementById('auto'), btnRestart = document.getElementById('restart'), selSpeed = document.getElementById('speed');
+
+  var reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  var sc = 0, idx = 0, auto = !reduce, speed = 1, st = null;
+  var PX_PER_S = 300;
+
+  function seg(pts) {
+    var cum = [0];
+    for (var i = 1; i < pts.length; i++) {
+      var dx = pts[i][0] - pts[i - 1][0], dy = pts[i][1] - pts[i - 1][1];
+      cum.push(cum[i - 1] + Math.sqrt(dx * dx + dy * dy));
+    }
+    return cum;
+  }
+  function posAt(pts, cum, p) {
+    var total = cum[cum.length - 1];
+    if (total === 0) return pts[0];
+    var d = p * total;
+    for (var i = 1; i < pts.length; i++) {
+      if (d <= cum[i]) {
+        var l = cum[i] - cum[i - 1];
+        var f = l === 0 ? 0 : (d - cum[i - 1]) / l;
+        return [pts[i - 1][0] + (pts[i][0] - pts[i - 1][0]) * f, pts[i - 1][1] + (pts[i][1] - pts[i - 1][1]) * f];
+      }
+    }
+    return pts[pts.length - 1];
+  }
+  function place(x, y) { pk.setAttribute('transform', 'translate(' + x.toFixed(1) + ' ' + y.toFixed(1) + ')'); }
+  function setHl(ids) {
+    NODES.forEach(function (n) { el[n].classList.toggle('on', ids.indexOf(n) !== -1); });
+  }
+  function applyUse(use) {
+    NODES.forEach(function (n) {
+      var dim = use.indexOf(n) === -1;
+      el[n].classList.toggle('dim', dim);
+      if (LINKS[n]) document.getElementById(LINKS[n]).classList.toggle('dim', dim);
+    });
+  }
+
+  function render(i) {
+    var steps = SCEN[sc].steps, s = steps[i];
+    dN.textContent = 'Step ' + (i + 1) + ' of ' + steps.length;
+    dT.textContent = s.t;
+    dD.textContent = s.d;
+    dC.textContent = s.code || '';
+    counter.textContent = SCEN[sc].name + '  ' + (i + 1) + '/' + steps.length;
+    var btns = stepsEl.querySelectorAll('button');
+    for (var k = 0; k < btns.length; k++) {
+      btns[k].classList.toggle('done', k < i);
+      if (k === i) btns[k].setAttribute('aria-current', 'step'); else btns[k].removeAttribute('aria-current');
+    }
+  }
+
+  function start(i) {
+    var steps = SCEN[sc].steps;
+    idx = i;
+    var s = steps[i];
+    render(i);
+    if (s.pts) {
+      var cum = seg(s.pts);
+      pk.setAttribute('class', 'pk ' + (s.kind || 'req'));
+      pkl.textContent = s.label || '';
+      setHl([]);
+      place(s.pts[0][0], s.pts[0][1]);
+      st = { phase: reduce ? 'dwell' : 'move', t0: performance.now(), pts: s.pts, cum: cum, len: cum[cum.length - 1], dwell: 1500 };
+      if (reduce) { var e = s.pts[s.pts.length - 1]; place(e[0], e[1]); setHl(s.hl || []); }
+    } else {
+      setHl(s.hl || []);
+      st = { phase: 'dwell', t0: performance.now(), dwell: 2800 };
+    }
+  }
+
+  function next() { var n = SCEN[sc].steps.length; start(idx + 1 < n ? idx + 1 : 0); }
+  function prev() { start(Math.max(0, idx - 1)); }
+
+  function frame(now) {
+    requestAnimationFrame(frame);
+    if (!st) return;
+    var s = SCEN[sc].steps[idx];
+    var el0 = now - st.t0;
+    if (st.phase === 'move') {
+      var dur = Math.max(450, (st.len / PX_PER_S) * 1000) / speed;
+      var p = Math.min(1, el0 / dur);
+      var e = p * p * (3 - 2 * p);
+      var pos = posAt(st.pts, st.cum, e);
+      place(pos[0], pos[1]);
+      if (p >= 1) { st.phase = 'dwell'; st.t0 = now; setHl(s.hl || []); }
+    } else if (auto && el0 >= st.dwell / speed) {
+      var last = idx === SCEN[sc].steps.length - 1;
+      if (last && el0 < (st.dwell + 1200) / speed) return;
+      next();
+    }
+  }
+
+  function buildSteps() {
+    stepsEl.textContent = '';
+    SCEN[sc].steps.forEach(function (s, i) {
+      var li = document.createElement('li');
+      var b = document.createElement('button');
+      b.type = 'button';
+      b.textContent = s.t;
+      b.addEventListener('click', function () { start(i); });
+      li.appendChild(b);
+      stepsEl.appendChild(li);
+    });
+  }
+
+  function choose(i) {
+    sc = i;
+    var ts = tabs.querySelectorAll('button');
+    for (var k = 0; k < ts.length; k++) ts[k].setAttribute('aria-selected', k === i ? 'true' : 'false');
+    applyUse(SCEN[i].use);
+    buildSteps();
+    start(0);
+  }
+
+  SCEN.forEach(function (s, i) {
+    var b = document.createElement('button');
+    b.type = 'button'; b.className = 'tab'; b.setAttribute('role', 'tab'); b.textContent = s.name;
+    b.addEventListener('click', function () { choose(i); });
+    tabs.appendChild(b);
+  });
+
+  btnPrev.addEventListener('click', prev);
+  btnNext.addEventListener('click', next);
+  btnRestart.addEventListener('click', function () { start(0); });
+  btnAuto.setAttribute('aria-pressed', auto ? 'true' : 'false');
+  btnAuto.addEventListener('click', function () {
+    auto = !auto;
+    btnAuto.setAttribute('aria-pressed', auto ? 'true' : 'false');
+    if (auto && st && st.phase === 'dwell') st.t0 = performance.now();
+  });
+  selSpeed.addEventListener('change', function () { speed = parseFloat(selSpeed.value) || 1; });
+
+  choose(0);
+  requestAnimationFrame(frame);
+})();
+</script>
